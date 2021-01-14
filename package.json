@@ -2,7 +2,7 @@
   "name": "snort3-test-adapter",
   "displayName": "Snort3 Test Explorer",
   "description": "Run snort3 tests in the Sidebar of Visual Studio Code",
-  "icon": "img/icon.png",
+  "icon": "img/snort_test_logo.png",
   "author": "Dipto Pandit <dipandit@cisco.com>",
   "publisher": "diptopandit",
   "version": "0.0.1",

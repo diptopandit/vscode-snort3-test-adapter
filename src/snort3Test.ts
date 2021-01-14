@@ -78,10 +78,21 @@ export function loadSnort3Tests(rootdir:vscode.WorkspaceFolder)
 			return undefined;
 		}
 	}
-	var suite=walk(rootdir.uri.path);
-	if(suite !== undefined)
-		sampleTestSuit.children.push(suite);
-	return Promise.resolve({suite:sampleTestSuit,snort3Tests:snort3Tests});	
+	try
+	{
+		fs.accessSync(rootdir.uri.path + '/bin/snorttest.py', fs.constants.R_OK);
+		var suite=walk(rootdir.uri.path);
+		if(suite !== undefined)
+		{
+			sampleTestSuit.children.push(suite);
+			return Promise.resolve({suite:sampleTestSuit,snort3Tests:snort3Tests});
+		}
+		return Promise.reject("No tests present");
+	}
+	catch
+	{
+		return Promise.reject("Not a snort3 test root directory");
+	}
 }
 
 export function runTest(id:string, test:snort3Test|undefined,

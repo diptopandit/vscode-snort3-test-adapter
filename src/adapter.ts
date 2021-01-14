@@ -34,7 +34,7 @@ class jobQueue {
 		this.jobdata.splice(0);
 	}
 }
-export class ExampleAdapter implements TestAdapter {
+export class Snort3TestAdapter implements TestAdapter {
 
 	private disposables: { dispose(): void }[] = [];
 	public loadedTests: {suite:TestSuiteInfo, snort3Tests:Map<string,snort3Test>}=<{suite:TestSuiteInfo, snort3Tests:Map<string,snort3Test>}>{};
@@ -78,10 +78,20 @@ export class ExampleAdapter implements TestAdapter {
 	}
 
 	async load(): Promise<void> {
-		this.log.info('Loading snort3 tests');
+		this.log.info('Loading snort3 tests...');
 		this.testsEmitter.fire(<TestLoadStartedEvent>{ type: 'started' });
-		this.loadedTests= await loadSnort3Tests(this.workspace);
-		this.testsEmitter.fire(<TestLoadFinishedEvent>{ type: 'finished', suite: this.loadedTests.suite });
+		return new Promise((resolve)=>{
+			loadSnort3Tests(this.workspace).then((value)=>{
+				this.log.info('Tests loaded.')
+				this.loadedTests = value;
+				this.testsEmitter.fire((<TestLoadFinishedEvent>{ type: 'finished', suite: this.loadedTests.suite }));
+				resolve();
+			}).catch((err:string)=>{
+				this.log.info('No tests found for this workspace folder.')
+				this.testsEmitter.fire((<TestLoadFinishedEvent>{ type: 'finished' }));
+				resolve();
+			});
+		});
 	}
 
 	async run(tests: string[]): Promise<void> {

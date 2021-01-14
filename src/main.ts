@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { TestHub, testExplorerExtensionId } from 'vscode-test-adapter-api';
 import { Log, TestAdapterRegistrar } from 'vscode-test-adapter-util';
-import { ExampleAdapter } from './adapter';
+import { Snort3TestAdapter } from './adapter';
 
 export async function activate(context: vscode.ExtensionContext) {
 
@@ -9,12 +9,12 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	// create a simple logger that can be configured with the configuration variables
 	// `exampleExplorer.logpanel` and `exampleExplorer.logfile`
-	const log = new Log('exampleExplorer', workspaceFolder, 'Example Explorer Log');
+	const log = new Log('snort3TestExplorer', workspaceFolder, 'Snort3 Test Explorer Log');
 	context.subscriptions.push(log);
 
 	// get the Test Explorer extension
 	const testExplorerExtension = vscode.extensions.getExtension<TestHub>(testExplorerExtensionId);
-	if (log.enabled) log.info(`Test Explorer ${testExplorerExtension ? '' : 'not '}found`);
+	if (log.enabled) log.info(`Snort3 Test Explorer ${testExplorerExtension ? '' : 'not '}found`);
 
 	if (testExplorerExtension) {
 
@@ -23,7 +23,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		// this will register an ExampleTestAdapter for each WorkspaceFolder
 		context.subscriptions.push(new TestAdapterRegistrar(
 			testHub,
-			workspaceFolder => new ExampleAdapter(workspaceFolder, log),
+			workspaceFolder => new Snort3TestAdapter(workspaceFolder, log),
 			log
 		));
 	}
