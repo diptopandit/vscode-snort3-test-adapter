@@ -1,26 +1,28 @@
 {
-  "name": "vscode-example-test-adapter",
-  "displayName": "Example Test Explorer",
-  "description": "Run your Example tests in the Sidebar of Visual Studio Code",
+  "name": "snort3-test-adapter",
+  "displayName": "Snort3 Test Explorer",
+  "description": "Run snort3 tests in the Sidebar of Visual Studio Code",
   "icon": "img/icon.png",
-  "author": "Holger Benl <hbenl@evandor.de>",
-  "publisher": "hbenl",
+  "author": "Dipto Pandit <dipandit@cisco.com>",
+  "publisher": "diptopandit",
   "version": "0.0.1",
   "license": "MIT",
-  "homepage": "https://github.com/hbenl/vscode-example-test-adapter",
+  "homepage": "https://github.com/diptopandit/vscode-snort3-test-adapter",
   "repository": {
     "type": "git",
-    "url": "https://github.com/hbenl/vscode-example-test-adapter.git"
+    "url": "https://github.com/diptopandit/vscode-snort3-test-adapter.git"
   },
   "bugs": {
-    "url": "https://github.com/hbenl/vscode-example-test-adapter/issues"
+    "url": "https://github.com/diptopandit/vscode-snort3-test-adapter/issues"
   },
   "categories": [
     "Other"
   ],
   "keywords": [
     "test",
-    "testing"
+    "testing",
+    "snort3",
+    "snort3_test"
   ],
   "main": "out/main.js",
   "scripts": {
@@ -34,7 +36,9 @@
   "dependencies": {
     "tslib": "^1.9.3",
     "vscode-test-adapter-api": "^1.7.0",
-    "vscode-test-adapter-util": "^0.7.0"
+    "vscode-test-adapter-util": "^0.7.0",
+    "xml-js": "^1.6.11",
+    "es6-promise-pool": "^2.5.0"
   },
   "devDependencies": {
     "@types/vscode": "~1.23.0",
@@ -48,19 +52,19 @@
     "hbenl.vscode-test-explorer"
   ],
   "activationEvents": [
-    "*"
+    "workspaceContains:bin/snorttest.py"
   ],
   "contributes": {
     "configuration": {
       "type": "object",
-      "title": "Example Test Explorer configuration",
+      "title": "Snort3 Test Explorer configuration",
       "properties": {
-        "exampleExplorer.logpanel": {
+        "snort3TestExplorer.logpanel": {
           "description": "write diagnotic logs to an output panel",
           "type": "boolean",
           "scope": "resource"
         },
-        "exampleExplorer.logfile": {
+        "snort3TestExplorer.logfile": {
           "description": "write diagnostic logs to the given file",
           "type": "string",
           "scope": "resource"
