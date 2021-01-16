@@ -32,7 +32,7 @@ export class snort3Test {
 	}
 }
 
-export function loadSnort3Tests(rootdir:vscode.WorkspaceFolder)
+export async function loadSnort3Tests(rootdir:vscode.WorkspaceFolder)
 	:Promise<{suite:TestSuiteInfo,snort3Tests:Map<string,snort3Test>}>
 {
 	var sampleTestSuit: TestSuiteInfo = {
@@ -87,11 +87,11 @@ export function loadSnort3Tests(rootdir:vscode.WorkspaceFolder)
 			sampleTestSuit.children.push(suite);
 			return Promise.resolve({suite:sampleTestSuit,snort3Tests:snort3Tests});
 		}
-		return Promise.reject("No tests present");
+		return Promise.reject("No tests present under this root.");
 	}
 	catch
 	{
-		return Promise.reject("Not a snort3 test root directory");
+		return Promise.reject("Not a snort3 test root directory.");
 	}
 }
 

@@ -57,11 +57,12 @@
   "contributes": {
     "configuration": {
       "type": "object",
-      "title": "Snort3 Test Explorer configuration",
+      "title": "Snort3 Test Explorer",
       "properties": {
         "snort3TestExplorer.logpanel": {
           "description": "write diagnotic logs to an output panel",
           "type": "boolean",
+          "default": true,
           "scope": "resource"
         },
         "snort3TestExplorer.logfile": {
