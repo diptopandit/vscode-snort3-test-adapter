@@ -1,8 +1,11 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import { TestSuiteInfo, TestInfo, TestAdapter, TestLoadStartedEvent, TestLoadFinishedEvent, TestRunStartedEvent, TestRunFinishedEvent, TestSuiteEvent, TestEvent, RetireEvent } from 'vscode-test-adapter-api';
 import { Log } from 'vscode-test-adapter-util';
 import { loadSnort3Tests, snort3Test, runTest } from './snort3Test';
 import {myStatusBarItem} from './main';
+import * as path from 'path';
+import {cpus} from 'os';
 
 class jobQueue {
 	private jobdata = new Array<TestInfo|TestSuiteInfo>();
@@ -39,7 +42,7 @@ class jobQueue {
 export class Snort3TestAdapter implements TestAdapter {
 
 	private disposables: { dispose(): void }[] = [];
-	public loadedTests: {suite:TestSuiteInfo, snort3Tests:Map<string,snort3Test>}=<{suite:TestSuiteInfo, snort3Tests:Map<string,snort3Test>}>{};
+	public loadedTests: {suite:TestSuiteInfo, testDetails:Map<string,snort3Test>}=<{suite:TestSuiteInfo, testDetails:Map<string,snort3Test>}>{};
 	private currentJobQ:jobQueue;
 	private running:boolean = false;
 	private loading:boolean = false;
@@ -50,7 +53,8 @@ export class Snort3TestAdapter implements TestAdapter {
 	private readonly testStatesEmitter = new vscode.EventEmitter<TestRunStartedEvent | TestRunFinishedEvent | TestSuiteEvent | TestEvent>();
 	private readonly autorunEmitter = new vscode.EventEmitter<void>();
 	private readonly retireEmitter = new vscode.EventEmitter<RetireEvent>();
-	private concurrency:number = 3;
+	private concurrency:number = cpus().length;
+	private isTestReady:boolean = false;
 
 	get tests(): vscode.Event<TestLoadStartedEvent | TestLoadFinishedEvent> { return this.testsEmitter.event; }
 	get testStates(): vscode.Event<TestRunStartedEvent | TestRunFinishedEvent | TestSuiteEvent | TestEvent> { return this.testStatesEmitter.event; }
@@ -62,20 +66,63 @@ export class Snort3TestAdapter implements TestAdapter {
 		private readonly log: Log
 	) {
 		this.log.info('Initializing snort3_test adapter for '+ workspace.uri.path);
-		const watcher1=vscode.workspace.createFileSystemWatcher('**/*.{py,xml,sh,lua}',true,false,true);
-		const watcher2=vscode.workspace.createFileSystemWatcher('**/*expected*',true,false,true);
+		const watcher1=vscode.workspace.createFileSystemWatcher('**/*.{py,xml,sh,lua}',true,false,true)
+			.onDidChange((e)=>{ this.handleFileChange(e); });
+		const watcher2=vscode.workspace.createFileSystemWatcher('**/*expected*',true,false,true)
+			.onDidChange((e)=>{ this.handleFileChange(e); });
+		const watcher3=vscode.workspace.onDidChangeConfiguration((change)=>{
+			if(change.affectsConfiguration('snort3TestExplorer.sf_prefix_snort3')){
+				this.isTestReady=this.validate_config();
+				this.load();
+			}
+			if(change.affectsConfiguration('snort3TestExplorer.concurrency')){
+				let newVal = <number>(vscode.workspace.getConfiguration('snort3TestExplorer').get('concurrency'));
+				if(newVal) this.concurrency=newVal;
+			}
+		});
 		this.disposables.push(this.testsEmitter);
 		this.disposables.push(this.testStatesEmitter);
 		this.disposables.push(this.autorunEmitter);
+		this.disposables.push(this.retireEmitter);
 		this.disposables.push(watcher1);
 		this.disposables.push(watcher2);
+		this.disposables.push(watcher3);
 		this.currentJobQ = new jobQueue;
-		watcher1.onDidChange((e)=>{ this.handleFileChange(e); });
-		watcher2.onDidChange((e)=>{ this.handleFileChange(e); });
+		this.isTestReady = this.validate_config();
 	}
 
-	handleFileChange(file:vscode.Uri){
+	private validate_config():boolean{
+		this.log.info('validating config');
+		const config = vscode.workspace.getConfiguration('snort3TestExplorer');
+		try{
+			this.log.info(config.get('sf_prefix_snort3'));
+			fs.accessSync(this.workspace.uri.path + '/bin/snorttest.py', fs.constants.R_OK);
+			fs.accessSync(config.get('sf_prefix_snort3')+'/bin/snort', fs.constants.R_OK);
+		} catch(e)
+		{
+			this.log.warn(this.workspace.uri.path+": "+e);
+			return false;
+		}
+		//don't care if this fails due to unavailable file handle
+		try{
+			fs.watch(config.get('sf_prefix_snort3')+'/bin/snort',(event)=>{
+				if(event == 'change') this.retireEmitter.fire({});
+			});
+		} finally {
+			return true;
+		}
+	}
 
+	private handleFileChange(file:vscode.Uri){
+		const changed_test = this.findNode(this.loadedTests.suite, path.dirname(file.path));
+		if(changed_test)
+		{
+			if(changed_test.type=='test' && file.path.substring(file.path.lastIndexOf('/') + 1)=== 'test.xml'){
+				const test=this.loadedTests.testDetails.get(changed_test.id);
+				if(test) test.reload();
+			}
+			this.retireEmitter.fire({tests:[changed_test.id]});
+		}
 	}
 
 	private findNode(searchNode: TestSuiteInfo | TestInfo, id:string)
@@ -86,17 +133,20 @@ export class Snort3TestAdapter implements TestAdapter {
 		} else if (searchNode.type === 'suite') {
 			for (const child of searchNode.children) {
 				const found = this.findNode(child, id);
-				if (found !== undefined) return found;
+				if (found) return found;
 			}
 		}
 		return undefined;
 	}
 
 	async load(): Promise<void> {
-		if(this.loading){
-			this.log.warn(this.workspace.uri.path+': Another load in progress.');
+		if(!this.isTestReady){
+			this.testsEmitter.fire((<TestLoadFinishedEvent>{ type: 'finished' }));
 			return Promise.resolve();
 		}
+		if(this.loading)
+			return Promise.resolve();
+
 		return new Promise((resolve)=>{
 			this.loading = true;
 			this.log.info(this.workspace.uri.path+': Loading snort3 tests...');
@@ -139,8 +189,8 @@ export class Snort3TestAdapter implements TestAdapter {
 			const node = self.currentJobQ.next();
 			if(node)
 			{
-				const test = self.loadedTests.snort3Tests.get(node.id);
-				return runTest(node.id,test,self.testStatesEmitter);
+				const test = self.loadedTests.testDetails.get(node.id);
+				return runTest(test,self.testStatesEmitter);
 			}
 			else return null;
 		}
@@ -165,6 +215,9 @@ export class Snort3TestAdapter implements TestAdapter {
 		this.log.info('Cancelling all scheduled jobs...');
 		this.cancelling = true;
 		this.currentJobQ.flush();
+		this.loadedTests.testDetails.forEach((value)=>{
+			value.abort();
+		});
 	}
 
 	dispose(): void {

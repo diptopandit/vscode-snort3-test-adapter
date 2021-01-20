@@ -69,6 +69,21 @@
           "description": "write diagnostic logs to the given file",
           "type": "string",
           "scope": "resource"
+        },
+        "snort3TestExplorer.sf_prefix_snort3": {
+          "description": "absolute path to the snort install directory",
+          "type": "string",
+          "scope": "resource"
+        },
+        "snort3TestExplorer.dependencies": {
+          "description": "absolute path to the dependencies directory",
+          "type": "string",
+          "scope": "resource"
+        },
+        "snort3TestExplorer.concurrency": {
+          "description": "number of concurrent test runs (defaults to number of processors)",
+          "type": "integer",
+          "scope": "resource"
         }
       }
     }

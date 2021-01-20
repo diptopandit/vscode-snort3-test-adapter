@@ -17,7 +17,6 @@ export async function activate(context: vscode.ExtensionContext) {
 	if (log.enabled) log.info(`Snort3 Test Explorer ${testExplorerExtension ? '' : 'not '}found`);
 
 	if (testExplorerExtension) {
-
 		const testHub = testExplorerExtension.exports;
 		myStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
 		myStatusBarItem.text=`$(beaker) Snort3 Tests`;
