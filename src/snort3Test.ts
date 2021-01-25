@@ -25,11 +25,14 @@ export class snort3Test {
 		return new Promise((resolve)=>{
 			testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.xmlPath, state: 'running' });
 			this.active_child = child_process.spawn(this.executor,
-				['--daq-dir',this.test_env.SNORT_TEST_DAQ_DIR,'-x',this.test_env.SNORT_PREFIX,'.'],
+				['--daq-dir',this.test_env.SNORT_TEST_DAQ_DIR,
+				'--plugin-path', this.test_env.SNORT_TEST_PLUGIN_PATH,
+				'--snort-test', this.test_env.SNORT3_TEST_ROOT,'-x',this.test_env.SNORT_PREFIX,'.'],
 				{cwd:this.xmlPath,env:this.test_env}).once('exit',(code,signal)=>{
 					if(!(signal || code)){
 						try{
 							let result=fs.readFileSync(this.xmlPath+'/results','utf8').toString().substring(0,8).split('\t')[0].toLowerCase();
+							if(result==='error') result = 'errored';
 							testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.xmlPath, state: result });
 						} catch{
 							testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.xmlPath, state: 'errored' });
@@ -37,10 +40,7 @@ export class snort3Test {
 					} else {
 						testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.xmlPath, state: 'errored' });
 					}
-					/*if(signal || code  && code > 2) testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.xmlPath, state: 'errored' });
-					else if(code == 2) testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.xmlPath, state: 'skipped' });
-					else if(code == 1) testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.xmlPath, state: 'failed' });
-					else if(code == 0) testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.xmlPath, state: 'passed' });*/
+					this.active_child=undefined;
 					resolve();
 				});
 			if(!this.active_child){
@@ -48,6 +48,12 @@ export class snort3Test {
 				resolve();
 			}
 		});
+		/* -- for debugging -- 
+		return new Promise((resolve)=>{
+			testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.xmlPath, state: 'running' });
+			setTimeout(()=>{testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.xmlPath, state: 'passed' }); resolve();},500);
+		});
+		*/
 		/*
 		return new Promise((resolve)=>{
 			testStatesEmitter.fire(<TestEvent>{ type: 'test', test: id, state: 'running' });
@@ -208,7 +214,7 @@ export async function loadSnort3Tests(rootdir:vscode.WorkspaceFolder)
 	const test_env = process.env;
 	let executor_dir = rootdir.uri.path;
 	let SF_PREFIX_SNORT3=<string>(vscode.workspace.getConfiguration('snort3TestExplorer').get('sf_prefix_snort3'));
-	let DEPENDENCY_DIR=vscode.workspace.getConfiguration('snort3TestExplorer').get('dependencies');
+	let DEPENDENCY_DIR=<string>(vscode.workspace.getConfiguration('snort3TestExplorer').get('dependencies'));
 	let SNORT3_TEST_ROOT=executor_dir;
 
 	test_env.SNORT_LUA_PATH=SF_PREFIX_SNORT3+'/etc/snort/';
@@ -216,7 +222,7 @@ export async function loadSnort3Tests(rootdir:vscode.WorkspaceFolder)
 	test_env.SNORT_PREFIX=SF_PREFIX_SNORT3;
 	test_env.LD_LIBRARY_PATH=DEPENDENCY_DIR+'/libdaq/lib:'+SF_PREFIX_SNORT3+'/lib64:'+DEPENDENCY_DIR+'/safec/lib:'+DEPENDENCY_DIR+'/luajit/lib:'+DEPENDENCY_DIR+'/cpputest/lib64';
 	test_env.PKG_CONFIG_PATH=SF_PREFIX_SNORT3+'/lib64/pkgconfig:'+DEPENDENCY_DIR+'/libdaq/lib/pkgconfig:'+DEPENDENCY_DIR+'/cpputest/lib64/pkgconfig:'+DEPENDENCY_DIR+'/luajit/lib/pkgconfig:'+DEPENDENCY_DIR+'/safec/lib/pkgconfig';
-	test_env.PATH=test_env.PATH+':'+SF_PREFIX_SNORT3+'/bin:'+SNORT3_TEST_ROOT+'/bin:'+DEPENDENCY_DIR+'/bin';
+	test_env.PATH=test_env.PATH+':'+SF_PREFIX_SNORT3+'/bin:'+SNORT3_TEST_ROOT+'/bin:'+DEPENDENCY_DIR+'/abcip/bin:'+DEPENDENCY_DIR+'/libdaq/bin:';
 	test_env.PYTHONPATH=SNORT3_TEST_ROOT+'/lib';
 	test_env.LUA_PATH=SF_PREFIX_SNORT3+'/include/snort/lua/\?.lua\;\;';
 	test_env.NFS_PCAP_DIR='/nfs/netboot/snort/snort-test/pcaps';
@@ -224,6 +230,7 @@ export async function loadSnort3Tests(rootdir:vscode.WorkspaceFolder)
 	test_env.SNORT_TEST_PLUGIN_PATH=SF_PREFIX_SNORT3+'/lib64';
 	test_env.SNORT_PLUGIN_PATH=SF_PREFIX_SNORT3+'/lib64';
 	test_env.SNORT3_TEST_ROOT=SNORT3_TEST_ROOT;
+	test_env.SNORT_SRCPATH=<string>(vscode.workspace.getConfiguration('snort3TestExplorer').get('snort_srcpath'));
 	
 	var snort3Tests = new Map<string,snort3Test>();
 	const getLastItem = (thePath: string) => thePath.substring(thePath.lastIndexOf('/') + 1)

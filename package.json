@@ -75,6 +75,11 @@
           "type": "string",
           "scope": "resource"
         },
+        "snort3TestExplorer.snort_srcpath": {
+          "description": "absolute path to the snort source directory",
+          "type": "string",
+          "scope": "resource"
+        },
         "snort3TestExplorer.dependencies": {
           "description": "absolute path to the dependencies directory",
           "type": "string",

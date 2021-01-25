@@ -7,8 +7,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	const workspaceFolder = (vscode.workspace.workspaceFolders || [])[0];
 
-	// create a simple logger that can be configured with the configuration variables
-	// `exampleExplorer.logpanel` and `exampleExplorer.logfile`
 	const log = new Log('snort3TestExplorer', workspaceFolder, 'Snort3 Test Explorer');
 	context.subscriptions.push(log);
 

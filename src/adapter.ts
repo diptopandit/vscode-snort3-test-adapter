@@ -5,6 +5,7 @@ import { Log } from 'vscode-test-adapter-util';
 import { loadSnort3Tests, snort3Test, runTest } from './snort3Test';
 import {myStatusBarItem} from './main';
 import * as path from 'path';
+//import PromisePool from 'es6-promise-pool';
 import {cpus} from 'os';
 
 class jobQueue {
@@ -38,16 +39,19 @@ class jobQueue {
 	public flush(){
 		this.jobdata.splice(0);
 	}
+
+	public dispose(){
+		this.flush();
+	}
 }
 export class Snort3TestAdapter implements TestAdapter {
 
 	private disposables: { dispose(): void }[] = [];
 	public loadedTests: {suite:TestSuiteInfo, testDetails:Map<string,snort3Test>}=<{suite:TestSuiteInfo, testDetails:Map<string,snort3Test>}>{};
-	private currentJobQ:jobQueue;
+	private currentJobQ:jobQueue = new jobQueue;
 	private running:boolean = false;
 	private loading:boolean = false;
 	private cancelling:boolean = false;
-	//private active_jobs:snort3Test[]=[];
 
 	private readonly testsEmitter = new vscode.EventEmitter<TestLoadStartedEvent | TestLoadFinishedEvent>();
 	private readonly testStatesEmitter = new vscode.EventEmitter<TestRunStartedEvent | TestRunFinishedEvent | TestSuiteEvent | TestEvent>();
@@ -66,41 +70,57 @@ export class Snort3TestAdapter implements TestAdapter {
 		private readonly log: Log
 	) {
 		this.log.info('Initializing snort3_test adapter for '+ workspace.uri.path);
-		const watcher1=vscode.workspace.createFileSystemWatcher('**/*.{py,xml,sh,lua}',true,false,true)
-			.onDidChange((e)=>{ this.handleFileChange(e); });
-		const watcher2=vscode.workspace.createFileSystemWatcher('**/*expected*',true,false,true)
-			.onDidChange((e)=>{ this.handleFileChange(e); });
-		const watcher3=vscode.workspace.onDidChangeConfiguration((change)=>{
-			if(change.affectsConfiguration('snort3TestExplorer.sf_prefix_snort3')){
-				this.isTestReady=this.validate_config();
-				this.load();
-			}
-			if(change.affectsConfiguration('snort3TestExplorer.concurrency')){
-				let newVal = <number>(vscode.workspace.getConfiguration('snort3TestExplorer').get('concurrency'));
-				if(newVal) this.concurrency=newVal;
-			}
-		});
 		this.disposables.push(this.testsEmitter);
 		this.disposables.push(this.testStatesEmitter);
 		this.disposables.push(this.autorunEmitter);
 		this.disposables.push(this.retireEmitter);
-		this.disposables.push(watcher1);
-		this.disposables.push(watcher2);
-		this.disposables.push(watcher3);
-		this.currentJobQ = new jobQueue;
-		this.isTestReady = this.validate_config();
+		this.disposables.push(this.currentJobQ);
+		if(this.is_test_root())
+		{
+			const watcher1=vscode.workspace.createFileSystemWatcher('**/*.{py,xml,sh,lua}',true,false,true)
+				.onDidChange((e)=>{ this.handleFileChange(e); });
+			const watcher2=vscode.workspace.createFileSystemWatcher('**/*expected*',true,false,true)
+				.onDidChange((e)=>{ this.handleFileChange(e); });
+			const watcher3=vscode.workspace.onDidChangeConfiguration((change)=>{
+				if(change.affectsConfiguration('snort3TestExplorer.sf_prefix_snort3')){
+					this.isTestReady=this.validate_config();
+					this.load();
+				}
+				if(change.affectsConfiguration('snort3TestExplorer.concurrency')){
+					let newVal = <number>(vscode.workspace.getConfiguration('snort3TestExplorer').get('concurrency'));
+					if(newVal) this.concurrency=newVal;
+				}
+			});
+			
+			this.disposables.push(watcher1);
+			this.disposables.push(watcher2);
+			this.disposables.push(watcher3);
+			this.isTestReady = this.validate_config();
+		} else {
+			this.dispose();
+		}
 	}
 
-	private validate_config():boolean{
-		this.log.info('validating config');
-		const config = vscode.workspace.getConfiguration('snort3TestExplorer');
+	private is_test_root():boolean{
 		try{
-			this.log.info(config.get('sf_prefix_snort3'));
 			fs.accessSync(this.workspace.uri.path + '/bin/snorttest.py', fs.constants.R_OK);
-			fs.accessSync(config.get('sf_prefix_snort3')+'/bin/snort', fs.constants.R_OK);
+			return true;
+		} catch {
+			return false;
+		}
+	}
+	private validate_config():boolean{
+		let config = vscode.workspace.getConfiguration('snort3TestExplorer');
+		let snort_binary = config.get('sf_prefix_snort3')+'/bin/snort';
+		try{
+			fs.accessSync(this.workspace.uri.path + '/bin/snorttest.py', fs.constants.R_OK);
+			fs.accessSync(snort_binary, fs.constants.R_OK);
 		} catch(e)
 		{
 			this.log.warn(this.workspace.uri.path+": "+e);
+			if(e.message.search(snort_binary))
+				vscode.window.showWarningMessage("Snort binary missing. \
+				Make sure sf_prefix_snort3 setting is correct and snort binary is present in that path.");
 			return false;
 		}
 		//don't care if this fails due to unavailable file handle
@@ -175,12 +195,10 @@ export class Snort3TestAdapter implements TestAdapter {
 		}
 		this.log.info(`Scheduling snort3 tests ${JSON.stringify(tests)}`);
 		this.testStatesEmitter.fire(<TestRunStartedEvent>{ type: 'started', tests });
-		myStatusBarItem.text=`$(beaker) $(sync~spin)Queuing jobs...`;
 		for (const suiteOrTestId of tests) {
 			const node = this.findNode(this.loadedTests.suite, suiteOrTestId);
 			if (node) this.currentJobQ.post(node);
 		}
-		myStatusBarItem.text=`$(beaker) Snort3 Tests`;
 		if(this.running) return;
 		this.running = true;
 		var PromisePool = require('es6-promise-pool');
@@ -192,7 +210,7 @@ export class Snort3TestAdapter implements TestAdapter {
 				const test = self.loadedTests.testDetails.get(node.id);
 				return runTest(test,self.testStatesEmitter);
 			}
-			else return null;
+			else return;
 		}
 		  
 		var test_pool = new PromisePool(testJobProducer, this.concurrency);
@@ -205,13 +223,14 @@ export class Snort3TestAdapter implements TestAdapter {
 		return;	
 	}
 
-/*	implement this method if your TestAdapter supports debugging tests
+/*	implement this method to run snort with gdb debugging tests
 	async debug(tests: string[]): Promise<void> {
 		// start a test run in a child process and attach the debugger to it...
 	}
 */
 
 	cancel(): void {
+		if(!this.isTestReady) return;
 		this.log.info('Cancelling all scheduled jobs...');
 		this.cancelling = true;
 		this.currentJobQ.flush();
