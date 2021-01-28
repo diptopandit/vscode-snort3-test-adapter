@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as convert from 'xml-js';
 import * as child_process from 'child_process';
+import {buildtool} from './main';
 import { TestSuiteInfo, TestInfo, TestRunStartedEvent, TestRunFinishedEvent, TestSuiteEvent, TestEvent } from 'vscode-test-adapter-api';
 
 export class snort3Test {
@@ -213,8 +214,8 @@ export async function loadSnort3Tests(rootdir:vscode.WorkspaceFolder)
 	};
 	const test_env = process.env;
 	let executor_dir = rootdir.uri.path;
-	let SF_PREFIX_SNORT3=<string>(vscode.workspace.getConfiguration('snort3TestExplorer').get('sf_prefix_snort3'));
-	let DEPENDENCY_DIR=<string>(vscode.workspace.getConfiguration('snort3TestExplorer').get('dependencies'));
+	let SF_PREFIX_SNORT3=<string>(buildtool.get_sf_prefix_snort3());
+	let DEPENDENCY_DIR=<string>(buildtool.get_dependencies());
 	let SNORT3_TEST_ROOT=executor_dir;
 
 	test_env.SNORT_LUA_PATH=SF_PREFIX_SNORT3+'/etc/snort/';
@@ -230,7 +231,7 @@ export async function loadSnort3Tests(rootdir:vscode.WorkspaceFolder)
 	test_env.SNORT_TEST_PLUGIN_PATH=SF_PREFIX_SNORT3+'/lib64';
 	test_env.SNORT_PLUGIN_PATH=SF_PREFIX_SNORT3+'/lib64';
 	test_env.SNORT3_TEST_ROOT=SNORT3_TEST_ROOT;
-	test_env.SNORT_SRCPATH=<string>(vscode.workspace.getConfiguration('snort3TestExplorer').get('snort_srcpath'));
+	test_env.SNORT_SRCPATH=<string>(buildtool.get_snort3_src_path());
 	
 	var snort3Tests = new Map<string,snort3Test>();
 	const getLastItem = (thePath: string) => thePath.substring(thePath.lastIndexOf('/') + 1)

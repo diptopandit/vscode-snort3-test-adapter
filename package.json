@@ -5,7 +5,7 @@
   "icon": "img/snort_test_logo.png",
   "author": "Dipto Pandit <dipandit@cisco.com>",
   "publisher": "diptopandit",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "license": "MIT",
   "homepage": "https://github.com/diptopandit/vscode-snort3-test-adapter",
   "repository": {
@@ -49,7 +49,8 @@
     "vscode": "^1.23.0"
   },
   "extensionDependencies": [
-    "hbenl.vscode-test-explorer"
+    "hbenl.vscode-test-explorer",
+    "diptopandit.snort3-build-tools"
   ],
   "activationEvents": [
     "workspaceContains:bin/snorttest.py"
@@ -68,26 +69,6 @@
         "snort3TestExplorer.logfile": {
           "description": "write diagnostic logs to the given file",
           "type": "string",
-          "scope": "resource"
-        },
-        "snort3TestExplorer.sf_prefix_snort3": {
-          "description": "absolute path to the snort install directory",
-          "type": "string",
-          "scope": "resource"
-        },
-        "snort3TestExplorer.snort_srcpath": {
-          "description": "absolute path to the snort source directory",
-          "type": "string",
-          "scope": "resource"
-        },
-        "snort3TestExplorer.dependencies": {
-          "description": "absolute path to the dependencies directory",
-          "type": "string",
-          "scope": "resource"
-        },
-        "snort3TestExplorer.concurrency": {
-          "description": "number of concurrent test runs (defaults to number of processors)",
-          "type": "integer",
           "scope": "resource"
         }
       }

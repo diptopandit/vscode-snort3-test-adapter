@@ -3,10 +3,9 @@ import * as fs from 'fs';
 import { TestSuiteInfo, TestInfo, TestAdapter, TestLoadStartedEvent, TestLoadFinishedEvent, TestRunStartedEvent, TestRunFinishedEvent, TestSuiteEvent, TestEvent, RetireEvent } from 'vscode-test-adapter-api';
 import { Log } from 'vscode-test-adapter-util';
 import { loadSnort3Tests, snort3Test, runTest } from './snort3Test';
-import {myStatusBarItem} from './main';
+import {myStatusBarItem, buildtool} from './main';
 import * as path from 'path';
 //import PromisePool from 'es6-promise-pool';
-import {cpus} from 'os';
 
 class jobQueue {
 	private jobdata = new Array<TestInfo|TestSuiteInfo>();
@@ -57,7 +56,6 @@ export class Snort3TestAdapter implements TestAdapter {
 	private readonly testStatesEmitter = new vscode.EventEmitter<TestRunStartedEvent | TestRunFinishedEvent | TestSuiteEvent | TestEvent>();
 	private readonly autorunEmitter = new vscode.EventEmitter<void>();
 	private readonly retireEmitter = new vscode.EventEmitter<RetireEvent>();
-	private concurrency:number = cpus().length;
 	private isTestReady:boolean = false;
 
 	get tests(): vscode.Event<TestLoadStartedEvent | TestLoadFinishedEvent> { return this.testsEmitter.event; }
@@ -81,20 +79,9 @@ export class Snort3TestAdapter implements TestAdapter {
 				.onDidChange((e)=>{ this.handleFileChange(e); });
 			const watcher2=vscode.workspace.createFileSystemWatcher('**/*expected*',true,false,true)
 				.onDidChange((e)=>{ this.handleFileChange(e); });
-			const watcher3=vscode.workspace.onDidChangeConfiguration((change)=>{
-				if(change.affectsConfiguration('snort3TestExplorer.sf_prefix_snort3')){
-					this.isTestReady=this.validate_config();
-					this.load();
-				}
-				if(change.affectsConfiguration('snort3TestExplorer.concurrency')){
-					let newVal = <number>(vscode.workspace.getConfiguration('snort3TestExplorer').get('concurrency'));
-					if(newVal) this.concurrency=newVal;
-				}
-			});
 			
 			this.disposables.push(watcher1);
 			this.disposables.push(watcher2);
-			this.disposables.push(watcher3);
 			this.isTestReady = this.validate_config();
 		} else {
 			this.dispose();
@@ -110,22 +97,20 @@ export class Snort3TestAdapter implements TestAdapter {
 		}
 	}
 	private validate_config():boolean{
-		let config = vscode.workspace.getConfiguration('snort3TestExplorer');
-		let snort_binary = config.get('sf_prefix_snort3')+'/bin/snort';
+		//let config = vscode.workspace.getConfiguration('snort3TestExplorer');
+		let snort_binary = buildtool.get_sf_prefix_snort3()+'/bin/snort';
 		try{
-			fs.accessSync(this.workspace.uri.path + '/bin/snorttest.py', fs.constants.R_OK);
 			fs.accessSync(snort_binary, fs.constants.R_OK);
 		} catch(e)
 		{
 			this.log.warn(this.workspace.uri.path+": "+e);
-			if(e.message.search(snort_binary))
 				vscode.window.showWarningMessage("Snort binary missing. \
 				Make sure sf_prefix_snort3 setting is correct and snort binary is present in that path.");
 			return false;
 		}
 		//don't care if this fails due to unavailable file handle
 		try{
-			fs.watch(config.get('sf_prefix_snort3')+'/bin/snort',(event)=>{
+			fs.watch(buildtool.get_sf_prefix_snort3()+'/bin/snort',(event)=>{
 				if(event == 'change') this.retireEmitter.fire({});
 			});
 		} finally {
@@ -160,17 +145,19 @@ export class Snort3TestAdapter implements TestAdapter {
 	}
 
 	async load(): Promise<void> {
-		if(!this.isTestReady){
+		if(!this.validate_config()){
+			this.isTestReady = false;
 			this.testsEmitter.fire((<TestLoadFinishedEvent>{ type: 'finished' }));
-			return Promise.resolve();
+			return ;
 		}
+		this.isTestReady = true;
 		if(this.loading)
-			return Promise.resolve();
+			return;
 
 		return new Promise((resolve)=>{
 			this.loading = true;
 			this.log.info(this.workspace.uri.path+': Loading snort3 tests...');
-			myStatusBarItem.text=`$(beaker) $(sync~spin)Loading...`;
+			myStatusBarItem.text=`$(sync~spin)`;
 			this.testsEmitter.fire(<TestLoadStartedEvent>{ type: 'started' });
 			loadSnort3Tests(this.workspace).then((value)=>{
 				this.log.info(this.workspace.uri.path+': Tests loaded.')
@@ -180,7 +167,7 @@ export class Snort3TestAdapter implements TestAdapter {
 				this.log.info(this.workspace.uri.path+': '+err);
 				this.testsEmitter.fire((<TestLoadFinishedEvent>{ type: 'finished' }));
 			}).finally(()=>{
-				myStatusBarItem.text=`$(beaker) Snort3 Tests`;
+				myStatusBarItem.text=`$(beaker)`;
 				this.loading = false;
 				this.retireEmitter.fire({});
 				resolve();
@@ -189,6 +176,10 @@ export class Snort3TestAdapter implements TestAdapter {
 	}
 
 	async run(tests: string[]): Promise<void> {
+		if(!this.validate_config()){
+			this.isTestReady = false;
+			return;
+		}
 		if(this.cancelling) {
 			this.log.info("Can't schedule now, wait till cancelling is done.");
 			return;
@@ -201,9 +192,9 @@ export class Snort3TestAdapter implements TestAdapter {
 		}
 		if(this.running) return;
 		this.running = true;
-		var PromisePool = require('es6-promise-pool');
+		const PromisePool = require('es6-promise-pool');
 		const self = this;
-		var testJobProducer = function () {
+		const testJobProducer = function () {
 			const node = self.currentJobQ.next();
 			if(node)
 			{
@@ -212,14 +203,14 @@ export class Snort3TestAdapter implements TestAdapter {
 			}
 			else return;
 		}
-		  
-		var test_pool = new PromisePool(testJobProducer, this.concurrency);
-		myStatusBarItem.text=`$(beaker) $(sync~spin)Running...`;
-		await test_pool.start();
-		myStatusBarItem.text=`$(beaker) Snort3 Tests`;
-		this.running=false;
-		this.cancelling = false;
-		this.testStatesEmitter.fire(<TestRunFinishedEvent>{ type: 'finished' });
+		var test_pool = new PromisePool(testJobProducer, buildtool.get_concurrency());
+		myStatusBarItem.text=`$(beaker~spin)`;
+		test_pool.start().then(()=>{
+			myStatusBarItem.text=`$(beaker)`;
+			this.running=false;
+			this.cancelling = false;
+			this.testStatesEmitter.fire(<TestRunFinishedEvent>{ type: 'finished' });
+		});
 		return;	
 	}
 

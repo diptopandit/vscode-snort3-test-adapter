@@ -5,11 +5,13 @@ Snort3 Test Explorer is a visual studio code extension that lets you run snort3 
 ## Setup
 
 * install the [Snort3 Test Explorer](https://marketplace.visualstudio.com/items?itemName=diptopandit.snort3-test-adapter) extension
-* open extension settings 
-* set sf_prefix_snort3 to snort install path
-* set snort_srcpath to snort source code path
-* set dependencies to dependencies (libdaq, abcip, cpputest etc.) installation path
+* make sure the [Snort3 Build Tools](https://marketplace.visualstudio.com/items?itemName=diptopandit.snort3-build-tools) extention is installed
+* configure the [Snort3 Build Tools](https://marketplace.visualstudio.com/items?itemName=diptopandit.snort3-build-tools) extention properly
+* open an workspace with snort3 and snort3_test folder in it
+* configure and build snort3 for regtest using [Snort3 Build Tools](https://marketplace.visualstudio.com/items?itemName=diptopandit.snort3-build-tools)
 
 You should now see a tree view of all the tests in the side panel:
 
-![The fake example test suite](img/fake-tests.png)
+![The snort3 test suite](https://raw.githubusercontent.com/diptopandit/vscode-snort3-test-adapter/master/img/fake-tests.png)
+
+Click on the run test button to start the tests
