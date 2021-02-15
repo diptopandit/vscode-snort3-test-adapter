@@ -212,7 +212,7 @@ export async function loadSnort3Tests(rootdir:vscode.WorkspaceFolder)
 		label: 'Snort3_test_root',
 		children: []
 	};
-	const test_env = process.env;
+	const test_env = Object.assign({},process.env);
 	let executor_dir = rootdir.uri.path;
 	let SF_PREFIX_SNORT3=<string>(buildtool.get_sf_prefix_snort3());
 	let DEPENDENCY_DIR=<string>(buildtool.get_dependencies());
