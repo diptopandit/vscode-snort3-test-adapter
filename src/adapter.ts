@@ -5,7 +5,7 @@ import { Log } from 'vscode-test-adapter-util';
 import { loadSnort3Tests, snort3Test, runTest } from './snort3Test';
 import {myStatusBarItem, buildtool} from './main';
 import * as path from 'path';
-//import PromisePool from 'es6-promise-pool';
+import * as PromisePool from 'es6-promise-pool';
 
 class jobQueue {
 	private jobdata = new Array<TestInfo|TestSuiteInfo>();
@@ -43,10 +43,11 @@ class jobQueue {
 		this.flush();
 	}
 }
-export class Snort3TestAdapter implements TestAdapter {
 
+export class Snort3TestAdapter implements TestAdapter {
 	private disposables: { dispose(): void }[] = [];
-	public loadedTests: {suite:TestSuiteInfo, testDetails:Map<string,snort3Test>}=<{suite:TestSuiteInfo, testDetails:Map<string,snort3Test>}>{};
+	public loadedTests: {suite:TestSuiteInfo, testDetails:Map<string,snort3Test>} =
+		<{suite:TestSuiteInfo, testDetails:Map<string,snort3Test>}>{};
 	private currentJobQ:jobQueue = new jobQueue;
 	private running:boolean = false;
 	private loading:boolean = false;
@@ -57,6 +58,7 @@ export class Snort3TestAdapter implements TestAdapter {
 	private readonly autorunEmitter = new vscode.EventEmitter<void>();
 	private readonly retireEmitter = new vscode.EventEmitter<RetireEvent>();
 	private isTestReady:boolean = false;
+	private isTestRoot:boolean = false;
 
 	get tests(): vscode.Event<TestLoadStartedEvent | TestLoadFinishedEvent> { return this.testsEmitter.event; }
 	get testStates(): vscode.Event<TestRunStartedEvent | TestRunFinishedEvent | TestSuiteEvent | TestEvent> { return this.testStatesEmitter.event; }
@@ -73,7 +75,8 @@ export class Snort3TestAdapter implements TestAdapter {
 		this.disposables.push(this.autorunEmitter);
 		this.disposables.push(this.retireEmitter);
 		this.disposables.push(this.currentJobQ);
-		if(this.is_test_root())
+		this.isTestRoot = this.is_test_root();
+		if(this.isTestRoot)
 		{
 			const watcher1=vscode.workspace.createFileSystemWatcher('**/*.{py,xml,sh,lua}',true,false,true)
 				.onDidChange((e)=>{ this.handleFileChange(e); });
@@ -97,7 +100,6 @@ export class Snort3TestAdapter implements TestAdapter {
 		}
 	}
 	private validate_config():boolean{
-		//let config = vscode.workspace.getConfiguration('snort3TestExplorer');
 		let snort_binary = buildtool.get_sf_prefix_snort3()+'/bin/snort';
 		try{
 			fs.accessSync(snort_binary, fs.constants.R_OK);
@@ -108,9 +110,17 @@ export class Snort3TestAdapter implements TestAdapter {
 				Make sure sf_prefix_snort3 setting is correct and snort binary is present in that path.");
 			return false;
 		}
+		try{
+			fs.accessSync(buildtool.get_dependencies(), fs.constants.R_OK);
+		} catch(e)
+		{
+			this.log.warn(this.workspace.uri.path+": "+e);
+			vscode.window.showWarningMessage("Dependencies not accessible.");
+			return false;
+		}
 		//don't care if this fails due to unavailable file handle
 		try{
-			fs.watch(buildtool.get_sf_prefix_snort3()+'/bin/snort',(event)=>{
+			fs.watch(snort_binary,(event)=>{
 				if(event == 'change') this.retireEmitter.fire({});
 			});
 		} finally {
@@ -145,7 +155,7 @@ export class Snort3TestAdapter implements TestAdapter {
 	}
 
 	async load(): Promise<void> {
-		if(!this.validate_config()){
+		if(!this.isTestRoot || !this.validate_config()){
 			this.isTestReady = false;
 			this.testsEmitter.fire((<TestLoadFinishedEvent>{ type: 'finished' }));
 			return ;
@@ -176,7 +186,7 @@ export class Snort3TestAdapter implements TestAdapter {
 	}
 
 	async run(tests: string[]): Promise<void> {
-		if(!this.validate_config()){
+		if(!this.isTestRoot || !this.validate_config()){
 			this.isTestReady = false;
 			return;
 		}
@@ -192,7 +202,6 @@ export class Snort3TestAdapter implements TestAdapter {
 		}
 		if(this.running) return;
 		this.running = true;
-		const PromisePool = require('es6-promise-pool');
 		const self = this;
 		const testJobProducer = function () {
 			const node = self.currentJobQ.next();
@@ -203,7 +212,7 @@ export class Snort3TestAdapter implements TestAdapter {
 			}
 			else return;
 		}
-		var test_pool = new PromisePool(testJobProducer, buildtool.get_concurrency());
+		var test_pool = new PromisePool.default(testJobProducer, buildtool.get_concurrency());
 		myStatusBarItem.text=`$(beaker~spin)`;
 		test_pool.start().then(()=>{
 			myStatusBarItem.text=`$(beaker)`;
@@ -214,8 +223,9 @@ export class Snort3TestAdapter implements TestAdapter {
 		return;	
 	}
 
-/*	implement this method to run snort with gdb debugging tests
-	async debug(tests: string[]): Promise<void> {
+/*	implement this method to run snort with gdb debugging tests */
+/*
+async debug(tests: string[]): Promise<void> {
 		// start a test run in a child process and attach the debugger to it...
 	}
 */

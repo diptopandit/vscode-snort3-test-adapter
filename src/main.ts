@@ -11,7 +11,6 @@ export async function activate(context: vscode.ExtensionContext) {
 	const log = new Log('snort3TestExplorer', workspaceFolder, 'Snort3 Test Explorer');
 	context.subscriptions.push(log);
 
-	// get the Test Explorer extension
 	const testExplorerExtension = vscode.extensions.getExtension<TestHub>(testExplorerExtensionId);
 	if (log.enabled) log.info(`Snort3 Test Explorer ${testExplorerExtension ? '' : 'not '}found`);
 	const snort3BuildTools = vscode.extensions.getExtension('diptopandit.snort3-build-tools');
@@ -24,7 +23,6 @@ export async function activate(context: vscode.ExtensionContext) {
 		myStatusBarItem.text=`$(beaker)`;
 		context.subscriptions.push(myStatusBarItem);
 		myStatusBarItem.show();
-		// this will register an ExampleTestAdapter for each WorkspaceFolder
 		context.subscriptions.push(new TestAdapterRegistrar(
 			testHub,
 			workspaceFolder => new Snort3TestAdapter(workspaceFolder, log),
