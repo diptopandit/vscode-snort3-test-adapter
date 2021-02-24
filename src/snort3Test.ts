@@ -5,7 +5,106 @@ import * as child_process from 'child_process';
 import {buildtool} from './main';
 import { TestSuiteInfo, TestInfo, TestRunStartedEvent, TestRunFinishedEvent, TestSuiteEvent, TestEvent } from 'vscode-test-adapter-api';
 
-export class snort3Test {
+const getLastItem = (thePath: string) => thePath.substring(thePath.lastIndexOf('/') + 1)
+
+export interface snort3Test {
+	getName():string;
+	getDescription():string;
+	execute(testStatesEmitter:vscode.EventEmitter<TestRunStartedEvent |
+		TestRunFinishedEvent | TestSuiteEvent | TestEvent>):Promise<void>;
+	reload():Promise<void>;
+	abort():void;
+}
+
+class snort3SpellCheck implements snort3Test {
+	private name:string = '';
+	private description:string = '';
+	private out_file:string = '';
+	constructor(
+		private readonly id:string,
+		private readonly testpath:string,
+		private readonly type:string,
+		private readonly target:string)
+	{
+		this.name = getLastItem(this.testpath);
+		this.description = 'Checks spell in ' + this.target;
+		this.out_file = 'unknown_'+this.type+'.txt';
+	}
+	getName():string {return this.name;}
+	getDescription():string {return this.description;}
+	execute(testStatesEmitter:vscode.EventEmitter<TestRunStartedEvent |
+		TestRunFinishedEvent | TestSuiteEvent | TestEvent>):Promise<void>
+	{
+		return new Promise((resolve)=>{
+			testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'running' });
+			const args = [this.target, '-name'];
+			const skips:string[] = [];
+			if(this.type === 'source') args.concat(['*.cc', '-o', '-name', '*.[ch]']);
+			else { args.push('*.txt'); skips.concat(['CMakeLists.txt','config_changes.txt']); }
+			const files = child_process.spawnSync('find', args, { encoding : 'utf8' })
+				.stdout.split('\n').sort().filter(x => !skips.includes(getLastItem(x)));	
+			files.shift();
+			if (!files.length){
+				testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'errored' });
+				resolve();
+			}
+			const runner:Promise<void>[]=[];
+			files.forEach(file => {
+				runner.push(this.run(file));
+			});
+			Promise.all(runner).then(()=>{
+				const diff = child_process.spawnSync('diff',['expected',this.out_file],{cwd:this.testpath});
+				if(!diff.pid || diff.signal) testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'errored' });
+				else if (diff.status)
+					testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'failed', description:diff.stdout.toString() });
+				else testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'passed' })
+			}).catch(()=>{
+				testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'errored' });
+			}).finally(()=>{resolve();});
+		});
+	}
+
+	private run_source(file:string):Promise<void>
+	{
+		return new Promise((resolve,reject)=>{
+			const strdump = child_process.spawn('strdump',['-c', file],{cwd:this.testpath});
+			const spell = child_process.spawn('hunspell',['-l', '-p', 'exception'],{cwd:this.testpath});
+			const sort = child_process.spawn('sort',['-u','-o',this.out_file],{cwd:this.testpath});
+			if(!strdump.pid || !spell.pid || !sort.pid) reject();
+			strdump.stdout.pipe(spell.stdin);
+			spell.stdout.pipe(sort.stdin);
+			sort.once('exit',()=>{resolve();});
+		});
+	}
+
+	private run_manual(file:string):Promise<void>
+	{
+		return new Promise((resolve,reject)=>{
+			const spell = child_process.spawn('hunspell',['-l', '-p', 'exception', file],{cwd:this.testpath});
+			const sort = child_process.spawn('sort',['-u','-o',this.out_file],{cwd:this.testpath});
+			if(!spell.pid || !sort.pid) reject();
+			spell.stdout.pipe(sort.stdin);
+			sort.once('exit',()=>{resolve();});
+		});
+	}
+
+	private run(file:string):Promise<void>
+	{
+		if(this.type==='manual') return this.run_manual(file);
+		else return this.run_source(file);
+	}
+
+	reload():Promise<void>
+	{
+		return Promise.resolve();
+	}
+
+	abort(){
+
+	}
+}
+
+class snort3RegTest implements snort3Test {
 	private testData:any;
 	private active_child:child_process.ChildProcess|undefined;
 	private readonly executor:string;
@@ -234,13 +333,63 @@ export async function loadSnort3Tests(rootdir:vscode.WorkspaceFolder)
 	test_env.SNORT_SRCPATH=<string>(buildtool.get_snort3_src_path());
 	
 	var snort3Tests = new Map<string,snort3Test>();
-	const getLastItem = (thePath: string) => thePath.substring(thePath.lastIndexOf('/') + 1)
 	var walk = function(dir:string) {
 		var list = fs.readdirSync(dir);
-		if(list.includes('test.xml')){
-			//leaf
+		if(list.includes('run.sh') && test_env.SNORT_SRCPATH){
+			//spell test
+			if (dir === 'source'){
+				const spells:TestSuiteInfo={
+					type:'suite',
+					id:dir,
+					label:getLastItem(dir),
+					children:[]
+				};
+				let src_id = dir;
+				let extraTest:snort3SpellCheck|undefined = undefined;
+				const extra_path = <string>(buildtool.get_snort3_src_extra_path());
+				if(extra_path !== ''){
+					src_id = dir+'/snort3';
+					extraTest = new snort3SpellCheck(dir+'/extra', dir, 'source', extra_path);
+					snort3Tests.set(dir+'/extra', extraTest);
+					spells.children.push(<TestInfo>{
+						type: 'test',
+						id: dir+'/extra',
+						label: extraTest.getName(),
+						file: dir + '/run.sh',
+						description: extraTest.getDescription(),
+						tooltip: extraTest.getName() + extraTest.getDescription()
+					});
+				}
+				const srcTest:snort3SpellCheck = new snort3SpellCheck(src_id, dir, 'source', test_env.SNORT_SRCPATH);
+				snort3Tests.set(src_id, srcTest);
+				const src_test:TestInfo = {
+					type: 'test',
+					id: src_id,
+					label: srcTest.getName(),
+					file: dir + '/run.sh',
+					description: srcTest.getDescription(),
+					tooltip: srcTest.getName() + srcTest.getDescription()
+				};
+				if(spells.children.length) {
+					spells.children.unshift(src_test);
+					return spells;
+				}
+				else return src_test;
+			} else {
+				const thisTest = new snort3SpellCheck(dir, dir, 'manual', test_env.SNORT_SRCPATH + '/doc');
+				snort3Tests.set(dir,thisTest);
+				return <TestInfo>{type: 'test',
+					id: dir,
+					label: getLastItem(dir),
+					file: dir + '/run.sh',
+					description: thisTest.getName(),
+					tooltip:thisTest.getName() + thisTest.getDescription()
+				};
+			}
+		}else if(list.includes('test.xml')){
+			//reg test
 			const file:string = dir + '/test.xml';
-			const thisTest = new snort3Test(dir, test_env);
+			const thisTest = new snort3RegTest(dir, test_env);
 			snort3Tests.set(dir,thisTest);
 			return <TestInfo>{type: 'test',
 				id: dir,
