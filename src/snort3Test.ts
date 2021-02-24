@@ -17,17 +17,18 @@ export interface snort3Test {
 }
 
 class snort3SpellCheck implements snort3Test {
-	private name:string = '';
-	private description:string = '';
-	private out_file:string = '';
+	private readonly name:string = '';
+	private readonly description:string = '';
+	private readonly out_file:string = '';
+	private readonly type:"source"|"manual";
 	constructor(
 		private readonly id:string,
 		private readonly testpath:string,
-		private readonly type:string,
 		private readonly target:string)
 	{
 		this.name = getLastItem(this.testpath);
 		this.description = 'Checks spell in ' + this.target;
+		this.type = <"source"|"manual">getLastItem(this.testpath);
 		this.out_file = 'unknown_'+this.type+'.txt';
 	}
 	getName():string {return this.name;}
@@ -39,8 +40,9 @@ class snort3SpellCheck implements snort3Test {
 			testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'running' });
 			const args = [this.target, '-name'];
 			const skips:string[] = [];
-			if(this.type === 'source') args.concat(['*.cc', '-o', '-name', '*.[ch]']);
-			else { args.push('*.txt'); skips.concat(['CMakeLists.txt','config_changes.txt']); }
+			if(this.type === 'source')
+				['*.cc', '-o', '-name', '*.[ch]'].forEach(x=>args.push(x));
+			else { args.push('*.txt'); ['CMakeLists.txt','config_changes.txt'].forEach(x=>skips.push(x)); }
 			const files = child_process.spawnSync('find', args, { encoding : 'utf8' })
 				.stdout.split('\n').sort().filter(x => !skips.includes(getLastItem(x)));	
 			files.shift();
@@ -48,50 +50,32 @@ class snort3SpellCheck implements snort3Test {
 				testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'errored' });
 				resolve();
 			}
-			const runner:Promise<void>[]=[];
 			files.forEach(file => {
-				runner.push(this.run(file));
+				if(!this.process(file)){
+					testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'errored' });
+					resolve();
+				}
 			});
-			Promise.all(runner).then(()=>{
-				const diff = child_process.spawnSync('diff',['expected',this.out_file],{cwd:this.testpath});
-				if(!diff.pid || diff.signal) testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'errored' });
-				else if (diff.status)
-					testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'failed', description:diff.stdout.toString() });
-				else testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'passed' })
-			}).catch(()=>{
-				testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'errored' });
-			}).finally(()=>{resolve();});
+			const sort = child_process.spawnSync('sort',['-u','-o',this.out_file,this.out_file],{cwd:this.testpath});
+			if(!sort.pid || sort.signal || sort.status) testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'errored' });
+			const diff = child_process.spawnSync('diff',['expected',this.out_file],{cwd:this.testpath});
+			if(!diff.pid || diff.signal) testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'errored' });
+			else if (diff.status)
+				testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'failed', description:diff.stdout.toString() });
+			else testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'passed' })
+			resolve();
 		});
 	}
 
-	private run_source(file:string):Promise<void>
+	private process(file:string):boolean
 	{
-		return new Promise((resolve,reject)=>{
-			const strdump = child_process.spawn('strdump',['-c', file],{cwd:this.testpath});
-			const spell = child_process.spawn('hunspell',['-l', '-p', 'exception'],{cwd:this.testpath});
-			const sort = child_process.spawn('sort',['-u','-o',this.out_file],{cwd:this.testpath});
-			if(!strdump.pid || !spell.pid || !sort.pid) reject();
-			strdump.stdout.pipe(spell.stdin);
-			spell.stdout.pipe(sort.stdin);
-			sort.once('exit',()=>{resolve();});
-		});
-	}
-
-	private run_manual(file:string):Promise<void>
-	{
-		return new Promise((resolve,reject)=>{
-			const spell = child_process.spawn('hunspell',['-l', '-p', 'exception', file],{cwd:this.testpath});
-			const sort = child_process.spawn('sort',['-u','-o',this.out_file],{cwd:this.testpath});
-			if(!spell.pid || !sort.pid) reject();
-			spell.stdout.pipe(sort.stdin);
-			sort.once('exit',()=>{resolve();});
-		});
-	}
-
-	private run(file:string):Promise<void>
-	{
-		if(this.type==='manual') return this.run_manual(file);
-		else return this.run_source(file);
+		let args:string='';
+		if(this.type==='source') args += 'strdump -c '+ file + ' | ';
+		args += 'hunspell -l -p exception ';
+		if(this.type==='manual') args+=file;
+		args += '>> '+ this.out_file;
+		const runner = child_process.spawnSync('bash',['-c', args],{cwd:this.testpath});
+		return (!(runner.signal || runner.status));
 	}
 
 	reload():Promise<void>
@@ -337,7 +321,7 @@ export async function loadSnort3Tests(rootdir:vscode.WorkspaceFolder)
 		var list = fs.readdirSync(dir);
 		if(list.includes('run.sh') && test_env.SNORT_SRCPATH){
 			//spell test
-			if (dir === 'source'){
+			if (getLastItem(dir) === 'source'){
 				const spells:TestSuiteInfo={
 					type:'suite',
 					id:dir,
@@ -346,10 +330,10 @@ export async function loadSnort3Tests(rootdir:vscode.WorkspaceFolder)
 				};
 				let src_id = dir;
 				let extraTest:snort3SpellCheck|undefined = undefined;
-				const extra_path = <string>(buildtool.get_snort3_src_extra_path());
+				const extra_path = ''//<string>(buildtool.get_snort3_src_extra_path());
 				if(extra_path !== ''){
 					src_id = dir+'/snort3';
-					extraTest = new snort3SpellCheck(dir+'/extra', dir, 'source', extra_path);
+					extraTest = new snort3SpellCheck(dir+'/extra', dir, extra_path);
 					snort3Tests.set(dir+'/extra', extraTest);
 					spells.children.push(<TestInfo>{
 						type: 'test',
@@ -360,7 +344,7 @@ export async function loadSnort3Tests(rootdir:vscode.WorkspaceFolder)
 						tooltip: extraTest.getName() + extraTest.getDescription()
 					});
 				}
-				const srcTest:snort3SpellCheck = new snort3SpellCheck(src_id, dir, 'source', test_env.SNORT_SRCPATH);
+				const srcTest:snort3SpellCheck = new snort3SpellCheck(src_id, dir, test_env.SNORT_SRCPATH);
 				snort3Tests.set(src_id, srcTest);
 				const src_test:TestInfo = {
 					type: 'test',
@@ -376,13 +360,13 @@ export async function loadSnort3Tests(rootdir:vscode.WorkspaceFolder)
 				}
 				else return src_test;
 			} else {
-				const thisTest = new snort3SpellCheck(dir, dir, 'manual', test_env.SNORT_SRCPATH + '/doc');
+				const thisTest = new snort3SpellCheck(dir, dir, test_env.SNORT_SRCPATH + '/doc');
 				snort3Tests.set(dir,thisTest);
 				return <TestInfo>{type: 'test',
 					id: dir,
-					label: getLastItem(dir),
+					label: thisTest.getName(),
 					file: dir + '/run.sh',
-					description: thisTest.getName(),
+					description: thisTest.getDescription(),
 					tooltip:thisTest.getName() + thisTest.getDescription()
 				};
 			}
