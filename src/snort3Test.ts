@@ -21,6 +21,7 @@ class snort3SpellCheck implements snort3Test {
 	private readonly description:string = '';
 	private readonly out_file:string = '';
 	private readonly type:"source"|"manual";
+	private active_child:child_process.ChildProcess|undefined;
 	constructor(
 		private readonly id:string,
 		private readonly testpath:string,
@@ -38,44 +39,41 @@ class snort3SpellCheck implements snort3Test {
 	{
 		return new Promise((resolve)=>{
 			testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'running' });
-			const args = [this.target, '-name'];
-			const skips:string[] = [];
-			if(this.type === 'source')
-				['*.cc', '-o', '-name', '*.[ch]'].forEach(x=>args.push(x));
-			else { args.push('*.txt'); ['CMakeLists.txt','config_changes.txt'].forEach(x=>skips.push(x)); }
-			const files = child_process.spawnSync('find', args, { encoding : 'utf8' })
-				.stdout.split('\n').sort().filter(x => !skips.includes(getLastItem(x)));	
-			files.shift();
-			if (!files.length){
-				testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'errored' });
-				resolve();
-			}
-			files.forEach(file => {
-				if(!this.process(file)){
+			
+			let find_args:string = ' -name';
+			if(this.type === 'source') find_args += ' *.cc -o -name *.[ch]';
+			else find_args += ' *.txt ! -name *CMakeLists.txt ! -name *config_changes.txt';
+
+			let xargs = ' | xargs -I {}';
+			if(this.type === 'source') xargs += ' strdump -c {} |';
+
+			let spell_cmd = ' hunspell -l -p exception';
+			if(this.type === 'manual') spell_cmd += ' {}';
+
+			const sort_cmd = ' sort -u -o '+this.out_file+' '+this.out_file;
+
+			const command = 'find ' + this.target + find_args + xargs + spell_cmd + ' >> ' + this.out_file + ';' + sort_cmd;
+
+			const runner = child_process.spawn('bash', ['-c', command], {cwd: this.testpath}).once('exit', (code, signal)=>{
+				this.active_child = undefined;
+				if(code || signal){
 					testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'errored' });
 					resolve();
 				}
+				const diff = child_process.spawnSync('diff',['expected',this.out_file],{cwd:this.testpath});
+				if(!diff.pid || diff.signal) testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'errored' });
+				else if (diff.status)
+					testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'failed', tooltip:diff.stdout.toString() });
+				else testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'passed' })
+				resolve();
 			});
-			const sort = child_process.spawnSync('sort',['-u','-o',this.out_file,this.out_file],{cwd:this.testpath});
-			if(!sort.pid || sort.signal || sort.status) testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'errored' });
-			const diff = child_process.spawnSync('diff',['expected',this.out_file],{cwd:this.testpath});
-			if(!diff.pid || diff.signal) testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'errored' });
-			else if (diff.status)
-				testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'failed', description:diff.stdout.toString() });
-			else testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'passed' })
-			resolve();
-		});
-	}
 
-	private process(file:string):boolean
-	{
-		let args:string='';
-		if(this.type==='source') args += 'strdump -c '+ file + ' | ';
-		args += 'hunspell -l -p exception ';
-		if(this.type==='manual') args+=file;
-		args += '>> '+ this.out_file;
-		const runner = child_process.spawnSync('bash',['-c', args],{cwd:this.testpath});
-		return (!(runner.signal || runner.status));
+			if(!runner || !runner.pid){
+				testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'errored' });
+				resolve();
+			}
+			this.active_child = runner;
+		});
 	}
 
 	reload():Promise<void>
@@ -84,7 +82,7 @@ class snort3SpellCheck implements snort3Test {
 	}
 
 	abort(){
-
+		if(this.active_child) this.active_child.kill()
 	}
 }
 
