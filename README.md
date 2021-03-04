@@ -15,3 +15,5 @@ You should now see a tree view of all the tests in the side panel:
 ![The snort3 test suite](https://raw.githubusercontent.com/diptopandit/vscode-snort3-test-adapter/master/img/fake-tests.png)
 
 Click on the run test button to start the tests
+
+Currently pcap based regressions and spell test is supported
