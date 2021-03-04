@@ -5,7 +5,6 @@ import { Log } from 'vscode-test-adapter-util';
 import { loadSnort3Tests, snort3Test, runTest } from './snort3Test';
 import {myStatusBarItem, buildtool} from './main';
 import * as path from 'path';
-import * as PromisePool from 'es6-promise-pool';
 
 class jobQueue {
 	private jobdata = new Array<TestInfo|TestSuiteInfo>();
@@ -212,7 +211,8 @@ export class Snort3TestAdapter implements TestAdapter {
 			}
 			else return;
 		}
-		var test_pool = new PromisePool.default(testJobProducer, buildtool.get_concurrency());
+		const PromisePool = require('es6-promise-pool');
+		var test_pool = new PromisePool(testJobProducer, buildtool.get_concurrency());
 		myStatusBarItem.text=`$(beaker~spin)`;
 		test_pool.start().then(()=>{
 			myStatusBarItem.text=`$(beaker)`;

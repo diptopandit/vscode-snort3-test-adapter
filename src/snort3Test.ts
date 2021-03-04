@@ -40,6 +40,9 @@ class snort3SpellCheck implements snort3Test {
 		return new Promise((resolve)=>{
 			testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'running' });
 			
+			if(fs.existsSync(this.testpath+'/'+this.out_file))
+				fs.unlinkSync(this.testpath+'/'+this.out_file);
+
 			let find_args:string = ' -name';
 			if(this.type === 'source') find_args += ' *.cc -o -name *.[ch]';
 			else find_args += ' *.txt ! -name *CMakeLists.txt ! -name *config_changes.txt';
@@ -64,7 +67,11 @@ class snort3SpellCheck implements snort3Test {
 				if(!diff.pid || diff.signal) testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'errored' });
 				else if (diff.status)
 					testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'failed', tooltip:diff.stdout.toString() });
-				else testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'passed' })
+				else
+				{
+					testStatesEmitter.fire(<TestEvent>{ type: 'test', test: this.id, state: 'passed' });
+					fs.unlink(this.testpath+'/'+this.out_file,()=>{});
+				}
 				resolve();
 			});
 
